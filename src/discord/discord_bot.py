@@ -57,4 +57,5 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
 
 # Run the bot
-bot.run(os.getenv('DISCORD_NOTEKEEPER_KEY'))
+if __name__ == "__main__":
+    bot.run(os.getenv('DISCORD_NOTEKEEPER_KEY'))
