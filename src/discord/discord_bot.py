@@ -3,9 +3,15 @@ from discord import app_commands
 import os
 from dotenv import load_dotenv
 from functools import wraps
+import sys
+from pathlib import Path
+
+project_root = Path(__file__).parents[2]
+sys.path.append(str(project_root))
 
 # Load environment variables
-load_dotenv()
+config_path = project_root / "config" / ".env"
+load_dotenv(dotenv_path=config_path)
 
 # Bot setup
 intents = discord.Intents.default()
