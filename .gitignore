@@ -8,3 +8,5 @@ __pycache__/
 # macOS system files
 ._*
 
+my_chroma_data/chroma.sqlite3
+chroma.log
