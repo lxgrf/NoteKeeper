@@ -1,48 +1,34 @@
+from pathlib import Path
 import chromadb
+from chromadb.config import Settings
+from typing import List, Dict, Any
 
-chroma_client = chromadb.Client()
+project_root = Path(__file__).parents[2]
 
-def get_existing_ids(collection_name: str, documents: list[str]) -> list[str]:
-    """
-    Retrieve existing IDs from the ChromaDB collection that match the given documents.
-    
-    :param collection_name: Name of the collection to search
-    :param documents: List of document texts to match
-    :return: List of existing IDs that match the documents
-    """
-    collection = chroma_client.get_or_create_collection(name=collection_name)
-    existing_ids = []
-    
-    for i, doc in enumerate(documents):
-        results = collection.query(query_texts=[doc], n_results=1)
-        if results['ids'][0]:
-            existing_ids.append(results['ids'][0][0])
-        else:
-            existing_ids.append(f"doc_{i}")
-    
-    return existing_ids
+def get_chroma_client():
+    persist_directory = str(project_root / "chroma_db")
+    return chromadb.PersistentClient(path=persist_directory)
 
-def store_embeddings(collection_name: str, documents: list[str], embeddings: list[list[float]], metadata: list[dict] = None, ids: list[str] = None):
-    """
-    Store embeddings in the ChromaDB database, updating existing entries if IDs are provided.
-    
-    :param collection_name: Name of the collection to store embeddings in
-    :param documents: List of document texts
-    :param embeddings: List of embedding vectors
-    :param metadata: Optional list of metadata dictionaries for each document
-    :param ids: Optional list of IDs for the documents
-    """
-    collection = chroma_client.get_or_create_collection(name=collection_name)
-    
-    if metadata is None:
-        metadata = [{} for _ in documents]
-    
-    if ids is None:
-        ids = get_existing_ids(collection_name, documents)
-    
+def get_or_create_chroma_collection(collection_name: str):
+    client = get_chroma_client()
+    return client.get_or_create_collection(name=collection_name)
+
+def get_existing_ids_chroma(collection):
+    return collection.get(include=['documents'])['ids']
+
+def store_embeddings_chroma(collection, documents: List[str], embeddings: List[List[float]], metadata: List[Dict[str, Any]]):
     collection.upsert(
         documents=documents,
         embeddings=embeddings,
         metadatas=metadata,
-        ids=ids
+        ids=[f"doc_{i}" for i in range(len(documents))]
     )
+
+def process_and_store_embeddings_chroma(database_id: str, documents: List[str], embeddings: List[List[float]], metadata: List[Dict[str, Any]]):
+    collection_name = f"notion_{database_id}"
+    client = get_chroma_client()
+    collection = get_or_create_chroma_collection(client, collection_name)
+    
+    existing_ids = get_existing_ids_chroma(collection)
+    
+    store_embeddings_chroma(collection, documents, embeddings, metadata)
