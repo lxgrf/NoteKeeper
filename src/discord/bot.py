@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 from functools import wraps
 import sys
 from pathlib import Path
+from src.ollama.answer import answer_question
+from src.notion.download import process_notion_databases
 
 project_root = Path(__file__).parents[2]
 sys.path.append(str(project_root))
@@ -46,7 +48,24 @@ async def hello(interaction: discord.Interaction):
 @tree.command(name="ask", description="Ask the bot a question")
 @guild_check()
 async def ask(interaction: discord.Interaction, question: str):
-    await interaction.response.send_message(f"You asked: {question}")
+    await interaction.response.defer(thinking=True)
+    
+    try:
+        answer = answer_question(question, [])  # Passing an empty list for database_ids
+        await interaction.followup.send(f"Question: {question}\n\nAnswer: {answer}")
+    except Exception as e:
+        await interaction.followup.send(f"An error occurred while processing your question: {str(e)}")
+
+@tree.command(name="update", description="Update the database from Notion")
+@guild_check()
+async def update(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    
+    try:
+        process_notion_databases()
+        await interaction.followup.send("Successfully updated the database from Notion.")
+    except Exception as e:
+        await interaction.followup.send(f"An error occurred while updating the database: {str(e)}")
 
 @tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -55,6 +74,8 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     else:
         # Handle other types of errors
         await interaction.response.send_message("An error occurred while processing the command.", ephemeral=True)
+
+
 
 # Run the bot
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 import discord
 from discord import app_commands
-from src.discord.discord_bot import bot, tree, guild_check, APPROVED_GUILDS
+from discord.bot import bot, tree, guild_check, APPROVED_GUILDS
 
 @pytest.fixture
 def mock_interaction():

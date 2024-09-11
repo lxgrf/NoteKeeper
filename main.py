@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from pathlib import Path
-from src.discord.discord_bot import bot
+from discord.bot import bot
 
 def main():
     # Get the project root directory

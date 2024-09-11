@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 project_root = Path(__file__).parents[1]
 sys.path.insert(0, str(project_root))
 
-from src.notion.notion_api import list_notion_databases, extract_notion_docs, extract_all_notion_docs, create_embeddings
+from notion.download import list_notion_databases, extract_notion_docs, extract_all_notion_docs, create_embeddings
 
 
 @pytest.fixture
