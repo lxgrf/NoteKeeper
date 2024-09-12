@@ -1,18 +1,13 @@
 import logging
-from langchain_community.document_loaders import NotionDBLoader
 from dotenv import load_dotenv
 import os
-import requests
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from typing import List
-from langchain_core.documents import Document
-import sys
 from pathlib import Path
-import pickle
+import sys
+from notion_client import Client
+from langchain.docstore.document import Document
 
 project_root = Path(__file__).parents[2]
 sys.path.append(str(project_root))
-from ollama.ingest import process_and_store_embeddings
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,96 +16,98 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 config_path = project_root / "config" / ".env"
 load_dotenv(dotenv_path=config_path)
 
-def save_docs_locally(docs: List[Document], database_id: str):
-    logging.info(f"Attempting to save {len(docs)} documents locally for database {database_id}")
-    cache_dir = project_root / "cache" / "notion"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"{database_id}.pkl"
-    
-    try:
-        with open(cache_file, "wb") as f:
-            pickle.dump(docs, f)
-        logging.info(f"Successfully saved {len(docs)} documents to {cache_file}")
-    except Exception as e:
-        logging.error(f"Error saving documents locally: {e}")
-
-def load_docs_locally(database_id: str) -> List[Document]:
-    logging.info(f"Attempting to load documents locally for database {database_id}")
-    cache_file = project_root / "cache" / "notion" / f"{database_id}.pkl"
-    
-    if cache_file.exists():
-        try:
-            with open(cache_file, "rb") as f:
-                docs = pickle.load(f)
-            logging.info(f"Successfully loaded {len(docs)} documents from {cache_file}")
-            return docs
-        except Exception as e:
-            logging.error(f"Error loading documents from cache: {e}")
-    else:
-        logging.info(f"No cache file found for database {database_id}")
-    return None
-
-def extract_notion_docs(database_id: str, use_cache: bool = True):
-    logging.info(f"Extracting Notion docs for database {database_id}, use_cache={use_cache}")
-    if use_cache:
-        cached_docs = load_docs_locally(database_id)
-        if cached_docs:
-            return cached_docs
+def extract_notion_docs(database_id: str):
+    logging.info(f"Starting extract_notion_docs for database {database_id}")
+    logging.info(f"Extracting Notion docs for database {database_id}")
 
     NOTION_API_KEY = os.getenv("NOTION_API_KEY")
     if not NOTION_API_KEY:
         logging.error("NOTION_API_KEY not found in environment variables")
         return None
     
+    notion = Client(auth=NOTION_API_KEY)
+    
     try:
-        logging.info(f"Initializing NotionDBLoader for database {database_id}")
-        loader = NotionDBLoader(
-            integration_token=NOTION_API_KEY,
-            database_id=database_id,
-            request_timeout_sec=30,
-        )
-        logging.info("Attempting to load documents from Notion")
-        docs = loader.load()
-        logging.info(f"Successfully loaded {len(docs)} documents from Notion")
-        save_docs_locally(docs, database_id)
+        docs = []
+        has_more = True
+        next_cursor = None
+
+        while has_more:
+            response = notion.databases.query(
+                database_id=database_id,
+                start_cursor=next_cursor
+            )
+
+            for page in response['results']:
+                page_id = page['id']
+                properties = page['properties']
+                
+                # Extract content
+                content = extract_page_content(notion, page_id)
+                
+                # Create metadata
+                metadata = {
+                    'notion_id': page_id,
+                    'notion_url': page['url'],
+                    'notion_properties': {}
+                }
+
+                # Process properties
+                for prop_name, prop_value in properties.items():
+                    prop_type = prop_value['type']
+                    if prop_type == 'title':
+                        metadata['title'] = prop_value['title'][0]['plain_text'] if prop_value['title'] else ''
+                        metadata['name'] = metadata['title']  # Add this line to set 'name' in metadata
+                    elif prop_type == 'relation':
+                        relation_ids = [relation['id'] for relation in prop_value['relation']]
+                        relation_names = get_relation_names(notion, relation_ids)
+                        metadata['notion_properties'][prop_name] = relation_names
+                    else:
+                        metadata['notion_properties'][prop_name] = prop_value[prop_type]
+
+                logging.info(f"Processing page {page_id}")
+                logging.info(f"Metadata before processing: {metadata}")
+                
+                doc = Document(page_content=content, metadata=metadata)
+                docs.append(doc)
+
+                logging.info(f"Metadata after processing: {metadata}")
+                
+            has_more = response['has_more']
+            next_cursor = response['next_cursor']
+
+        logging.info(f"Successfully extracted {len(docs)} documents from Notion")
         return docs
-    except requests.exceptions.HTTPError as e:
-        logging.error(f"HTTP Error occurred: {e}")
-        logging.error(f"Response content: {e.response.content}")
+
     except Exception as e:
         logging.error(f"An error occurred while extracting Notion docs: {e}")
-    
-    return None
+        return None
 
-def process_notion_databases(dbases: List[str], use_cache: bool = False) -> Dict[str, bool]:
-    logging.info("Starting database processing")
-    results = {}
-    for dbase in dbases:
-        logging.info(f"Processing database: {dbase}")
-        docs = extract_notion_docs(dbase, use_cache=use_cache)
-        if docs:
-            logging.info(f"Processing and storing embeddings for database {dbase}")
-            try:
-                process_and_store_embeddings(database_id=dbase, docs=docs)
-                results[dbase] = True
-                logging.info(f"Successfully processed database: {dbase}")
-            except Exception as e:
-                logging.error(f"Failed to process database {dbase}: {str(e)}")
-                results[dbase] = False
-        else:
-            logging.warning(f"No documents extracted for database {dbase}")
-            results[dbase] = False
-    logging.info("Database processing completed")
-    return results
+def extract_page_content(notion, page_id):
+    blocks = notion.blocks.children.list(block_id=page_id)
+    content = ""
+    for block in blocks['results']:
+        if block['type'] == 'paragraph':
+            content += block['paragraph']['rich_text'][0]['plain_text'] if block['paragraph']['rich_text'] else ""
+        # Add more block types as needed
 
-# Usage example:
-if __name__ == "__main__":
-    logging.info("Starting main execution")
-    test_databases = [
-        # "8d5dc8537d04457fa92a543a83ac397b", # Facts
-        "a7c454796df647eaa901d324c74cca67"  # Events
-    ]
-    process_notion_databases(test_databases, use_cache=False)
-    logging.info("Main execution completed")
+    return content
 
+def get_relation_names(notion, relation_ids):
+    names = []
+    for relation_id in relation_ids:
+        try:
+            page = notion.pages.retrieve(relation_id)
+            title_property = next((prop for prop in page['properties'].values() if prop['type'] == 'title'), None)
+            if title_property:
+                name = title_property['title'][0]['plain_text'] if title_property['title'] else 'Untitled'
+                names.append(name)
+            else:
+                names.append('Untitled')
+        except Exception as e:
+            logging.error(f"Error retrieving related page {relation_id}: {e}")
+            names.append('Error')
+    return names
+
+# The rest of your file remains unchanged
 
