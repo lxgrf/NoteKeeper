@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from functools import wraps
 import sys
 from pathlib import Path
-from src.ollama.answer import answer_question
+from src.ollama_utils.answer import answer_question
 from src.notion.download import process_notion_databases
 
 project_root = Path(__file__).parents[2]
